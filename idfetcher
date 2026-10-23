@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Text Formatter</title>
+  <style>
+    :root { --gap: 16px; --pad: 12px; --bg: #f7f9fb; --accent: #2563eb; }
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; background: var(--bg); color: #0f172a; }
+    h3 { margin: 0 0 12px 0; }
+    .row { display: flex; gap: 4%; align-items: stretch; }
+    textarea { width: 48%; height: 360px; padding: var(--pad); box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; font-size: 14px; line-height: 1.45; background: #fff; }
+    .controls { margin-top: 12px; display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
+    button { padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; background: var(--accent); color: white; font-weight: 600; }
+    button.secondary { background: #6b7280; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid rgba(99,102,241,0.18); }
+    button:focus { outline: 3px solid rgba(37,99,235,0.18); }
+    .note { margin-top: 10px; color: #374151; font-size: 13px; }
+    @media (max-width: 800px) {
+      .row { flex-direction: column; }
+      textarea { width: 100%; height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <h3>Text Formatter</h3>
+
+  <div class="row">
+    <textarea id="input" aria-label="Input text" placeholder="Paste text here..."></textarea>
+    <textarea id="output" aria-label="Formatted output" placeholder="Formatted output..." readonly></textarea>
+  </div>
+
+  <div class="controls">
+    <button id="formatBtn" type="button">Format</button>
+    <button id="singleLineBtn" class="secondary" type="button">Normalize To Single Lines</button>
+    <button id="combineBtn" class="secondary" type="button">Combine Into Single Paragraph</button>
+    <button id="copyBtn" class="ghost" type="button">Copy Output</button>
+    <button id="clearBtn" class="secondary" type="button">Clear</button>
+    <div style="margin-left:auto; font-size:13px; color:#374151;">Tip: press <strong>Ctrl/Cmd+Enter</strong> to format quickly</div>
+  </div>
+
+  <div class="note">
+ 
+  </div>
+
+  <script>
+    (function () {
+      const input = document.getElementById('input');
+      const output = document.getElementById('output');
+      const formatBtn = document.getElementById('formatBtn');
+      const singleLineBtn = document.getElementById('singleLineBtn');
+      const combineBtn = document.getElementById('combineBtn');
+      const copyBtn = document.getElementById('copyBtn');
+      const clearBtn = document.getElementById('clearBtn');
+
+      // Normalize CRLF and CR to LF
+      function normalizeNewlines(text) {
+        return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      }
+
+      // Collapse inline whitespace (spaces, tabs, NBSP) but do not remove newlines
+      function collapseInlineWhitespace(line) {
+        return line.replace(/\u00A0/g, ' ').replace(/[ \t\u00A0]+/g, ' ');
+      }
+
+      // Trim multiple blank lines at start/end
+      function trimLeadingTrailingBlankLines(text) {
+        text = text.replace(/^(?:\s*\n)+/, '');
+        text = text.replace(/(?:\n\s*)+$/, '');
+        return text;
+      }
+
+      // Clean text while preserving paragraph breaks (single blank line = paragraph)
+      function cleanText(text) {
+        if (!text) return '';
+        let t = normalizeNewlines(text);
+        // Split into lines, trim each line and collapse inline whitespace
+        const lines = t.split('\n').map(line => collapseInlineWhitespace(line.trim()));
+        // Rejoin lines
+        t = lines.join('\n');
+        // Collapse 3+ newlines into 2 (single paragraph break)
+        t = t.replace(/\n{3,}/g, '\n\n');
+        t = trimLeadingTrailingBlankLines(t);
+        return t;
+      }
+
+      // Combine everything into a single paragraph (one line)
+      function combineToSingleParagraph(text) {
+        if (!text) return '';
+        let t = normalizeNewlines(text);
+        // Replace all newline sequences with a single space
+        t = t.replace(/\n+/g, ' ');
+        // Replace NBSP and collapse multiple spaces
+        t = t.replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ');
+        // Trim
+        t = t.trim();
+        return t;
+      }
+
+      // Split a paragraph into sentences where sentences end with a period.
+      // Keeps the period at the end of each sentence. Any trailing text without a period remains as its own line.
+      function splitParagraphByPeriodSentences(paragraph) {
+        if (!paragraph) return [];
+        // Collapse internal newlines and inline whitespace into single spaces first
+        const collapsed = paragraph.split('\n').map(line => collapseInlineWhitespace(line.trim())).join(' ');
+        const singleSpaced = collapsed.replace(/[ \t]+/g, ' ').trim();
+        if (!singleSpaced) return [];
+
+        // Match sequences that end with a period (including multiple periods like ellipses),
+        // or the final fragment that doesn't end with a period.
+        // This regex captures segments ending with a period (one or more) or the trailing fragment.
+        const re = /[^.]*\.+|[^.]+$/g;
+        const matches = singleSpaced.match(re) || [];
+        // Trim each match and collapse any remaining extra spaces
+        return matches.map(s => s.replace(/[ \t]+/g, ' ').trim()).filter(Boolean);
+      }
+
+      // Normalize to single lines: for each paragraph, split into sentences ending with a period,
+      // place each such sentence on its own line; keep leftover fragments as their own lines.
+      function normalizeToSingleLines(text) {
+        if (!text) return '';
+        let t = normalizeNewlines(text);
+        t = trimLeadingTrailingBlankLines(t);
+        // Split into paragraphs by one or more blank lines
+        const paragraphs = t.split(/\n{2,}/).map(par => {
+          const sentences = splitParagraphByPeriodSentences(par);
+          // Join sentences with newline so each sentence (ending with period) is on its own line.
+          // If a paragraph had no periods, the whole paragraph becomes a single line.
+          return sentences.join('\n');
+        }).filter(p => p.length > 0);
+        // Join paragraphs with a single blank line between them
+        return paragraphs.join('\n\n');
+      }
+
+      function flashButton(btn, text, delay = 900) {
+        const original = btn.textContent;
+        btn.textContent = text;
+        setTimeout(() => { btn.textContent = original; }, delay);
+      }
+
+      formatBtn.addEventListener('click', () => {
+        output.value = cleanText(input.value);
+        flashButton(formatBtn, 'Formatted');
+      });
+
+      singleLineBtn.addEventListener('click', () => {
+        output.value = normalizeToSingleLines(input.value);
+        flashButton(singleLineBtn, 'Normalized');
+      });
+
+      combineBtn.addEventListener('click', () => {
+        output.value = combineToSingleParagraph(input.value);
+        flashButton(combineBtn, 'Combined');
+      });
+
+      copyBtn.addEventListener('click', async () => {
+        const value = output.value || '';
+        if (!value) {
+          flashButton(copyBtn, 'Nothing to copy', 1200);
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(value);
+            flashButton(copyBtn, 'Copied', 1200);
+            return;
+          } catch (err) {
+            // fall through to execCommand fallback
+          }
+        }
+        const prevSelectionStart = output.selectionStart;
+        const prevSelectionEnd = output.selectionEnd;
+        const prevActive = document.activeElement;
+        output.select();
+        try {
+          const ok = document.execCommand('copy');
+          if (ok) {
+            flashButton(copyBtn, 'Copied', 1200);
+          } else {
+            flashButton(copyBtn, 'Copy Failed', 1200);
+          }
+        } catch (e) {
+          flashButton(copyBtn, 'Copy Failed', 1200);
+        } finally {
+          if (prevActive && typeof prevActive.focus === 'function') prevActive.focus();
+          try {
+            output.setSelectionRange(prevSelectionStart, prevSelectionEnd);
+          } catch (e) { /* ignore */ }
+        }
+      });
+
+      clearBtn.addEventListener('click', () => {
+        input.value = '';
+        output.value = '';
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          output.value = cleanText(input.value);
+          flashButton(formatBtn, 'Formatted');
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
+          e.preventDefault();
+          output.value = combineToSingleParagraph(input.value);
+          flashButton(combineBtn, 'Combined');
+        }
+      });
+
+      // Expose helpers for testing or reuse
+      window.textFormatter = { cleanText, normalizeToSingleLines, combineToSingleParagraph, splitParagraphByPeriodSentences };
+    })();
+  </script>
+</body>
+</html>
