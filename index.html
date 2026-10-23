@@ -1,215 +1,130 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <title>Aprimo Content ID Fetcher</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Text Formatter</title>
   <style>
-    :root { --gap: 16px; --pad: 12px; --bg: #f7f9fb; --accent: #2563eb; }
-    body { font-family: system-ui, Arial, sans-serif; margin: 24px; background: var(--bg); color: #0f172a; }
-    h3 { margin: 0 0 12px 0; }
-    .row { display: flex; gap: 4%; align-items: stretch; }
-    textarea { width: 48%; height: 360px; padding: var(--pad); box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace; font-size: 14px; line-height: 1.45; background: #fff; }
-    .controls { margin-top: 12px; display:flex; gap: 8px; align-items:center; flex-wrap:wrap; }
-    button { padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; background: var(--accent); color: white; font-weight: 600; }
-    button.secondary { background: #6b7280; }
-    button.ghost { background: transparent; color: var(--accent); border: 1px solid rgba(99,102,241,0.18); }
-    button:focus { outline: 3px solid rgba(37,99,235,0.18); }
-    .note { margin-top: 10px; color: #374151; font-size: 13px; }
-    @media (max-width: 800px) {
-      .row { flex-direction: column; }
-      textarea { width: 100%; height: 240px; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 32px; line-height: 1.45; }
+    label { display: block; margin-top: 12px; font-weight: bold; }
+    input[type="text"] { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; }
+    .controls { margin-top: 12px; }
+    button {
+      padding: 10px 14px;
+      font-size: 14px;
+      margin-right: 8px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      background-color: #007bff;
+      color: #fff;
     }
+    button:disabled { opacity: 0.6; cursor: default; }
+    textarea { width: 100%; padding: 10px; font-size: 14px; box-sizing: border-box; margin-top: 8px; resize: vertical; min-height: 44px; }
+    .small { font-size: 13px; color: #555; margin-top: 6px; }
   </style>
 </head>
 <body>
-  <h3>Text Formatter</h3>
+  <header>
+    <h1>Aprimo Content ID Fetcher</h1>
+    <h3>Capture content ID and remove dashes from media URLs.</h3>
+  </header>
 
-  <div class="row">
-    <textarea id="input" aria-label="Input text" placeholder="Paste text here..."></textarea>
-    <textarea id="output" aria-label="Formatted output" placeholder="Formatted output..." readonly></textarea>
-  </div>
+  <label for="urlInput">Enter a URL</label>
+  <input id="urlInput" type="text" />
 
   <div class="controls">
-    <button id="formatBtn" type="button">Format</button>
-    <button id="singleLineBtn" class="secondary" type="button">Normalize To Single Lines</button>
-    <button id="combineBtn" class="secondary" type="button">Combine Into Single Paragraph</button>
-    <button id="copyBtn" class="ghost" type="button">Copy Output</button>
-    <button id="clearBtn" class="secondary" type="button">Clear</button>
-    <div style="margin-left:auto; font-size:13px; color:#374151;">Tip: press <strong>Ctrl/Cmd+Enter</strong> to format quickly</div>
+    <button id="captureBtn">Capture</button>
   </div>
 
-  <div class="note">
- 
+  <label for="capturedBox">Captured Content ID (first path segment)</label>
+  <textarea id="capturedBox" readonly></textarea>
+
+  <label for="cleanBox">Cleaned Content ID (dashes removed)</label>
+  <textarea id="cleanBox" readonly></textarea>
+
+  <div class="controls" style="margin-top:8px;">
+    <button id="copyCleanBtn" disabled>Copy Cleaned Content ID</button>
   </div>
 
   <script>
-    (function () {
-      const input = document.getElementById('input');
-      const output = document.getElementById('output');
-      const formatBtn = document.getElementById('formatBtn');
-      const singleLineBtn = document.getElementById('singleLineBtn');
-      const combineBtn = document.getElementById('combineBtn');
-      const copyBtn = document.getElementById('copyBtn');
-      const clearBtn = document.getElementById('clearBtn');
+    const urlInput = document.getElementById('urlInput');
+    const captureBtn = document.getElementById('captureBtn');
+    const copyCleanBtn = document.getElementById('copyCleanBtn');
+    const capturedBox = document.getElementById('capturedBox');
+    const cleanBox = document.getElementById('cleanBox');
 
-      // Normalize CRLF and CR to LF
-      function normalizeNewlines(text) {
-        return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      }
-
-      // Collapse inline whitespace (spaces, tabs, NBSP) but do not remove newlines
-      function collapseInlineWhitespace(line) {
-        return line.replace(/\u00A0/g, ' ').replace(/[ \t\u00A0]+/g, ' ');
-      }
-
-      // Trim multiple blank lines at start/end
-      function trimLeadingTrailingBlankLines(text) {
-        text = text.replace(/^(?:\s*\n)+/, '');
-        text = text.replace(/(?:\n\s*)+$/, '');
-        return text;
-      }
-
-      // Clean text while preserving paragraph breaks (single blank line = paragraph)
-      function cleanText(text) {
-        if (!text) return '';
-        let t = normalizeNewlines(text);
-        // Split into lines, trim each line and collapse inline whitespace
-        const lines = t.split('\n').map(line => collapseInlineWhitespace(line.trim()));
-        // Rejoin lines
-        t = lines.join('\n');
-        // Collapse 3+ newlines into 2 (single paragraph break)
-        t = t.replace(/\n{3,}/g, '\n\n');
-        t = trimLeadingTrailingBlankLines(t);
-        return t;
-      }
-
-      // Combine everything into a single paragraph (one line)
-      function combineToSingleParagraph(text) {
-        if (!text) return '';
-        let t = normalizeNewlines(text);
-        // Replace all newline sequences with a single space
-        t = t.replace(/\n+/g, ' ');
-        // Replace NBSP and collapse multiple spaces
-        t = t.replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ');
-        // Trim
-        t = t.trim();
-        return t;
-      }
-
-      // Split a paragraph into sentences where sentences end with a period.
-      // Keeps the period at the end of each sentence. Any trailing text without a period remains as its own line.
-      function splitParagraphByPeriodSentences(paragraph) {
-        if (!paragraph) return [];
-        // Collapse internal newlines and inline whitespace into single spaces first
-        const collapsed = paragraph.split('\n').map(line => collapseInlineWhitespace(line.trim())).join(' ');
-        const singleSpaced = collapsed.replace(/[ \t]+/g, ' ').trim();
-        if (!singleSpaced) return [];
-
-        // Match sequences that end with a period (including multiple periods like ellipses),
-        // or the final fragment that doesn't end with a period.
-        // This regex captures segments ending with a period (one or more) or the trailing fragment.
-        const re = /[^.]*\.+|[^.]+$/g;
-        const matches = singleSpaced.match(re) || [];
-        // Trim each match and collapse any remaining extra spaces
-        return matches.map(s => s.replace(/[ \t]+/g, ' ').trim()).filter(Boolean);
-      }
-
-      // Normalize to single lines: for each paragraph, split into sentences ending with a period,
-      // place each such sentence on its own line; keep leftover fragments as their own lines.
-      function normalizeToSingleLines(text) {
-        if (!text) return '';
-        let t = normalizeNewlines(text);
-        t = trimLeadingTrailingBlankLines(t);
-        // Split into paragraphs by one or more blank lines
-        const paragraphs = t.split(/\n{2,}/).map(par => {
-          const sentences = splitParagraphByPeriodSentences(par);
-          // Join sentences with newline so each sentence (ending with period) is on its own line.
-          // If a paragraph had no periods, the whole paragraph becomes a single line.
-          return sentences.join('\n');
-        }).filter(p => p.length > 0);
-        // Join paragraphs with a single blank line between them
-        return paragraphs.join('\n\n');
-      }
-
-      function flashButton(btn, text, delay = 900) {
-        const original = btn.textContent;
-        btn.textContent = text;
-        setTimeout(() => { btn.textContent = original; }, delay);
-      }
-
-      formatBtn.addEventListener('click', () => {
-        output.value = cleanText(input.value);
-        flashButton(formatBtn, 'Formatted');
-      });
-
-      singleLineBtn.addEventListener('click', () => {
-        output.value = normalizeToSingleLines(input.value);
-        flashButton(singleLineBtn, 'Normalized');
-      });
-
-      combineBtn.addEventListener('click', () => {
-        output.value = combineToSingleParagraph(input.value);
-        flashButton(combineBtn, 'Combined');
-      });
-
-      copyBtn.addEventListener('click', async () => {
-        const value = output.value || '';
-        if (!value) {
-          flashButton(copyBtn, 'Nothing to copy', 1200);
-          return;
-        }
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          try {
-            await navigator.clipboard.writeText(value);
-            flashButton(copyBtn, 'Copied', 1200);
-            return;
-          } catch (err) {
-            // fall through to execCommand fallback
-          }
-        }
-        const prevSelectionStart = output.selectionStart;
-        const prevSelectionEnd = output.selectionEnd;
-        const prevActive = document.activeElement;
-        output.select();
+    function getFirstPathSegment(raw) {
+      try {
+        const u = new URL(raw);
+        const parts = u.pathname.split('/').filter(Boolean);
+        return parts.length ? parts[0] : '';
+      } catch (e) {
+        const normalized = raw.startsWith('http') ? raw : 'https://' + raw;
         try {
-          const ok = document.execCommand('copy');
-          if (ok) {
-            flashButton(copyBtn, 'Copied', 1200);
-          } else {
-            flashButton(copyBtn, 'Copy Failed', 1200);
-          }
-        } catch (e) {
-          flashButton(copyBtn, 'Copy Failed', 1200);
-        } finally {
-          if (prevActive && typeof prevActive.focus === 'function') prevActive.focus();
-          try {
-            output.setSelectionRange(prevSelectionStart, prevSelectionEnd);
-          } catch (e) { /* ignore */ }
+          const u2 = new URL(normalized);
+          const parts2 = u2.pathname.split('/').filter(Boolean);
+          return parts2.length ? parts2[0] : '';
+        } catch {
+          const parts = raw.split('/').filter(part => part !== '');
+          if (parts.length >= 3) return parts[2];
+          if (parts.length >= 1) return parts[0];
+          return '';
         }
-      });
+      }
+    }
 
-      clearBtn.addEventListener('click', () => {
-        input.value = '';
-        output.value = '';
-      });
+    function removeDashes(str) {
+      return str.replace(/-/g, '');
+    }
 
-      document.addEventListener('keydown', (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-          e.preventDefault();
-          output.value = cleanText(input.value);
-          flashButton(formatBtn, 'Formatted');
-        }
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
-          e.preventDefault();
-          output.value = combineToSingleParagraph(input.value);
-          flashButton(combineBtn, 'Combined');
-        }
-      });
+    captureBtn.addEventListener('click', () => {
+      const raw = urlInput.value.trim();
+      if (!raw) {
+        capturedBox.value = 'Please enter a URL.';
+        cleanBox.value = '';
+        copyCleanBtn.disabled = true;
+        return;
+      }
 
-      // Expose helpers for testing or reuse
-      window.textFormatter = { cleanText, normalizeToSingleLines, combineToSingleParagraph, splitParagraphByPeriodSentences };
-    })();
+      const captured = getFirstPathSegment(raw);
+      if (!captured) {
+        capturedBox.value = "No path segment found in the provided URL.";
+        cleanBox.value = '';
+        copyCleanBtn.disabled = true;
+        return;
+      }
+
+      const cleaned = removeDashes(captured);
+
+      capturedBox.value = captured;
+      cleanBox.value = cleaned;
+      copyCleanBtn.disabled = cleaned === '';
+    });
+
+    copyCleanBtn.addEventListener('click', async () => {
+      const text = cleanBox.value;
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyCleanBtn.textContent = 'Copied';
+        setTimeout(() => copyCleanBtn.textContent = 'Copy Cleaned', 1500);
+      } catch {
+        cleanBox.select();
+        document.execCommand('copy');
+        copyCleanBtn.textContent = 'Copied';
+        setTimeout(() => copyCleanBtn.textContent = 'Copy Cleaned', 1500);
+      }
+    });
+
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        captureBtn.click();
+      }
+    });
+
+    document.title = 'Aprimo Content ID Fetcher';
   </script>
 </body>
 </html>
